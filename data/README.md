@@ -74,8 +74,87 @@ Fails loudly (non-zero exit) on duplicate `sample_id`, empty transcripts,
 missing/empty audio files, unsupported extensions, malformed JSON/CSV rows and
 missing required columns. Broken samples are never skipped silently.
 
-## Note on committed audio
+## Git policy for data
 
-No Assamese speech corpus is included in this repository. Bring your own
-authorised recordings (or a public dataset) and generate a manifest under
+| content | committed? | notes |
+|---|---|---|
+| `data/raw/**` — source recordings | **no** (git-ignored) | never modified in place; stays local |
+| `data/processed/**` — derived audio | **no** (git-ignored) | regenerate from raw using a documented command |
+| `data/metadata/*.jsonl`, `*.csv` — manifests | *usually yes* | only while they contain no private paths or personal data |
+| consent forms, speaker lists, contact details | **never** | keep entirely outside the repository |
+
+`.gitignore` enforces the audio rules:
+
+```gitignore
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+```
+
+A manifest may be committed when it references public datasets or paths inside
+this repository's ignored `data/` tree, using opaque identifiers. Do **not**
+commit one that embeds absolute paths containing a real name, a private dataset
+location, an account name, or any contact detail. When unsure, keep the manifest
+local and describe it in a `dataset issue` instead.
+
+No Assamese speech corpus is included in this repository: bring your own
+authorised recordings (or a cleared public dataset) and generate a manifest under
 `data/metadata/`.
+
+## Consent
+
+Speech used in this project must have appropriate participant consent:
+
+- consent must be explicit, recorded by whoever collected the audio, and cover
+  research use (and redistribution of *derived* artifacts such as manifests or
+  metrics, if that is intended);
+- consent records belong with the collector's own records — **never** in this
+  repository;
+- if consent is unclear or missing, the recording cannot be used: do not commit
+  it and do not add it to a benchmark manifest;
+- a collaborator who cannot confirm consent for a sample should raise a
+  `dataset issue` rather than "fixing" the manifest quietly.
+
+## Privacy
+
+Never commit:
+
+```text
+private speaker names or initials
+phone numbers, email addresses, postal addresses
+government or other private identifiers
+consent forms containing personal data
+recordings that have not been cleared for research use
+```
+
+Use opaque identifiers instead:
+
+```text
+spk_001
+spk_002
+spk_003
+```
+
+`region`, `speech_style`, `environment` and `language_mix` are coarse research
+labels. Do not combine them into a profile that could re-identify an individual
+speaker, and aggregate or drop labels for very small speaker groups before
+publishing results.
+
+## Research integrity
+
+- **Raw data is immutable.** Nothing in this repository rewrites, trims, renames
+  or overwrites files in `data/raw/`; conversions produce separate copies.
+- **Derived data stays traceable.** `sample_id` is the stable key linking raw
+  audio → hypothesis → per-sample metrics → aggregate report. `predictions.jsonl`
+  repeats the `sample_id` and the sample metadata so a later reader can trace any
+  number back to a sample.
+- **Transcripts are preserved verbatim.** The form used for scoring is derived
+  separately, and `predictions.jsonl` stores both (`transcript`/`reference_raw`
+  vs `reference`).
+- **Nothing is fabricated.** A metric may only be reported if it came from a
+  re-runnable command over a manifest. Failed runs are recorded as failed and
+  never produce partial predictions or metrics.
+- **Editing a frozen benchmark changes the meaning of old scores.** Removing or
+  correcting a sample, a transcript or a condition label is a benchmark version
+  change; note explicitly which earlier results are no longer comparable.

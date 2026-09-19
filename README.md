@@ -1,184 +1,253 @@
 # AwesomeAssam
 
+<!-- Badges are disabled until the repository is public: commit/CI/size badges
+     would render as broken images while there is no GitHub remote.
+     Re-enable by uncommenting this block once the repository is published.
+
 ![GitHub last commit](https://img.shields.io/github/last-commit/rugbedbugg/AwesomeAssam?style=for-the-badge&labelColor=000000)
 ![GitHub repo size](https://img.shields.io/github/repo-size/rugbedbugg/AwesomeAssam?style=for-the-badge&labelColor=000000)
-![Stars](https://img.shields.io/github/stars/rugbedbugg/AwesomeAssam?style=for-the-badge&labelColor=000000)
+![CI](https://github.com/rugbedbugg/AwesomeAssam/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/github/license/rugbedbugg/AwesomeAssam?style=for-the-badge&labelColor=000000)
 
-A research-oriented framework for measuring how well a pretrained Assamese ASR
-model holds up across speakers, regional speech varieties, speaking styles,
-code-switching and acoustic conditions — and, in later milestones, how much
-targeted fine-tuning improves it. Milestone 0 delivers only the pretrained
-IndicConformer baseline and the dataset/WER/CER evaluation infrastructure it
-needs.
+-->
 
-## Status
+A toolkit for evaluating Assamese automatic speech recognition (ASR). Give it
+Assamese audio plus reference transcripts, and it transcribes the audio with a
+pretrained AI4Bharat IndicConformer model, then reports word error rate (WER) and
+character error rate (CER) -- per recording and for the whole set -- while
+keeping the edit counts so you can see *what* went wrong, not just how much.
 
-**Prototype** — Milestone 0 (baseline evaluation infrastructure) implemented and
-tested. Pretrained-model inference has **not** been executed in this repository's
-development environment; see [Inference status](#inference-status-indicconformer).
+Every run is written to its own folder together with the configuration used, the
+model and decoder, timings and the git revision, so results can be reproduced
+and compared later.
 
-## Current milestone
+> **Current state of this repository:** the evaluation pipeline works and is
+> tested. The model runtime (PyTorch + AI4Bharat NeMo) is installed separately,
+> and inference has not been run here yet, so there are no accuracy numbers in
+> this repository. See [Running the model](#running-the-model).
+
+## What you can do today
+
+| I want to... | Use |
+|---|---|
+| check a dataset before a long run | `scripts/validate_dataset.py` |
+| transcribe Assamese audio and score it | `scripts/run_inference.py` |
+| recompute or audit WER/CER of an existing run | `scripts/evaluate.py` |
+| build a custom experiment in Python | the package API, see [Using it from Python](#using-it-from-python) |
+
+What that gives you:
+
+- **Validation that fails loudly.** Duplicate `sample_id`s, empty transcripts,
+  missing or empty audio, unsupported extensions and malformed manifest rows are
+  reported per sample. Broken samples are never skipped silently.
+- **Transcript handling that is safe for Assamese.** Unicode normalization with
+  ZWNJ/ZWJ preserved, whitespace collapsed, meaningful Assamese characters left
+  alone -- and the verbatim transcript always kept next to the normalized one.
+- **WER/CER with the detail kept.** Substitutions, deletions, insertions and
+  reference unit counts for every sample, pooled correctly for the dataset.
+- **Reproducible runs.** Each run folder records the config, its SHA-256, the
+  model id, decoder, device, timings, sample count and git revision.
+- **Traceable numbers.** Any aggregate figure can be traced back to a
+  `sample_id`, its audio path, its metadata and its hypothesis.
+- **No GPU or network needed** to validate data, score predictions or run tests.
+
+## What is not in this repository
+
+Not implemented, these modules do not exist yet:
 
 ```text
-Milestone 0: pretrained IndicConformer baseline + WER/CER evaluation infrastructure
+model training / fine-tuning   NOT IMPLEMENTED
+BiLSTM-CTC baseline            NOT IMPLEMENTED
+translation                    NOT IMPLEMENTED
+text-to-speech                 NOT IMPLEMENTED
+web UI or REST API             NOT IMPLEMENTED
 ```
 
-Implemented in Milestone 0:
+For the research direction -- what is being investigated, in what order, and
+what is deliberately out of scope -- see [docs/ROADMAP.md](docs/ROADMAP.md).
 
-- JSONL/CSV dataset manifest schema (`sample_id`, `audio_path`, `transcript` + optional research metadata)
-- dataset validation that fails loudly on duplicates, empty transcripts, missing/empty audio, unsupported paths and malformed entries
-- conservative, documented Assamese transcript normalization (verbatim form preserved)
-- minimal audio loading/validation with mono downmix and 16 kHz resampling into a copy (raw audio never modified)
-- a thin pretrained **AI4Bharat IndicConformer** inference adapter behind a small backend interface
-- WER and CER with substitutions/deletions/insertions preserved per sample, plus word alignment for error analysis
-- filesystem-backed experiment artifacts (`config.yaml`, `predictions.jsonl`, `metrics.json`, `run.json`)
-- three CLI entry points with meaningful exit codes
+## Quick start
 
-## Not implemented yet
+```bash
+# 0. environment: Python 3.11 + uv, via mise
+mise install
+mise run install
+
+# 1. describe your recordings in a manifest  (see "Your data")
+# 2. check that every sample is usable
+uv run python scripts/validate_dataset.py data/metadata/baseline.jsonl
+
+# 3. install the model runtime, then transcribe and score  (see "Running the model")
+uv run python scripts/run_inference.py \
+    --manifest data/metadata/baseline.jsonl \
+    --config configs/indicconformer.yaml \
+    --output experiments/baseline
+
+# 4. inspect or recompute the metrics
+uv run python scripts/evaluate.py experiments/baseline_20260919_001
+```
+
+## Install
+
+Prerequisites: [mise](https://mise.jdx.dev/) (which provides Python 3.11 and uv),
+or a Python 3.11 environment with [uv](https://docs.astral.sh/uv/) available.
+
+```bash
+git clone <repository-url>   # public URL pending publication
+cd AwesomeAssam
+mise install                 # Python 3.11 + uv
+mise run install             # uv sync --locked (creates .venv)
+```
+
+uv-only equivalent:
+
+```bash
+git clone <repository-url>
+cd AwesomeAssam
+uv sync --locked
+```
+
+This installs the lightweight dependencies only (numpy, soundfile, soxr, PyYAML,
+pytest, ruff). The model runtime is deliberately separate. See
+[Running the model](#running-the-model).
+
+## Your data
+
+A dataset is a manifest (JSONL preferred, CSV accepted) plus your audio files.
+One line per recording:
+
+```json
+{"sample_id": "as_000001", "audio_path": "data/raw/as_000001.wav", "transcript": "মই আজি ঘৰলৈ যাম", "speaker_id": "spk_001", "region": "unknown", "speech_style": "read", "environment": "quiet", "language_mix": "assamese"}
+```
+
+- **Required fields:** `sample_id`, `audio_path`, `transcript`.
+- **Optional metadata** (used to break results down by condition later):
+  `speaker_id`, `region`, `speech_style`, `environment`, `language_mix`,
+  `duration_seconds`.
+- **Audio formats:** `.wav`, `.flac`, `.ogg`, `.oga`, `.opus`, `.mp3`. Anything
+  else (for example `.m4a`) must be converted out of band, e.g.
+  `ffmpeg -i in.m4a -ac 1 -ar 16000 out.wav`.
+- **Paths:** relative `audio_path` values resolve against the current directory;
+  pass `--audio-root` to resolve them elsewhere.
+- **Your files are never modified.** Any conversion the model needs is written to
+  a separate copy; the original recording stays as it is.
+- **Unknown fields are rejected** rather than ignored, so a typo cannot silently
+  drop a research variable. Adding one is a one-line change in
+  `src/assamese_asr/data/schema.py`.
+
+Layout, privacy rules, consent requirements and the full manifest reference live
+in [data/README.md](data/README.md). Read it before sharing any data.
+
+## Running the model
+
+The model runtime (PyTorch + the AI4Bharat NeMo fork) is **not** installed by
+`uv sync`, because that fork is not published to PyPI and PyTorch is large. Keep
+it out of the lightweight environment:
+
+```bash
+# 1. accept AI4Bharat's conditions on the model page, then authenticate
+hf auth login
+
+# 2. install the inference runtime (in the project venv, Python 3.11)
+git clone https://github.com/AI4Bharat/NeMo.git && cd NeMo \
+  && git checkout nemo-v2 && bash reinstall.sh
+
+# 3. smoke test on two samples before committing to a full run
+uv run python scripts/run_inference.py \
+    --manifest data/metadata/baseline.jsonl \
+    --config configs/indicconformer.yaml \
+    --output experiments/smoke --limit 2
+```
+
+Model: `ai4bharat/indicconformer_stt_as_hybrid_ctc_rnnt_large` A hybrid
+CTC/RNNT Conformer-Large model for Assamese (`language_id: as`), expecting 16 kHz
+mono WAV input. It is a gated Hugging Face repository.
+
+### Current status of real inference
+
+**Real inference has not been run in this repository yet.** There is no accuracy
+number here, and nothing in this repository estimates or fills one in. What
+blocks it in this development environment:
 
 ```text
-BiLSTM-CTC       NOT IMPLEMENTED
-fine-tuning      NOT IMPLEMENTED
-translation      NOT IMPLEMENTED
-TTS              NOT IMPLEMENTED
-frontend         NOT IMPLEMENTED
+gated model repository      accepting AI4Bharat's conditions while authenticated
+                            is required (anonymous downloads are refused), and no
+                            token exists in the development environment
+inference runtime absent    PyTorch + the AI4Bharat NeMo fork are deliberately
+                            not dependencies of this package
+no CUDA device              inference would be CPU-only, with roughly 1 GB of
+                            free RAM observed during development
 ```
 
-Also not implemented, and deliberately absent rather than stubbed: dataset
-collection tooling, condition-specific error taxonomy, automatic dialect
-classification, automatic speaker identification, REST API, database,
-dashboards, experiment-tracking server, distributed training, Docker, cloud
-infrastructure, CTC training loops and generic ML framework abstractions.
-No placeholder classes exist for any of them — see
-[Where future phases go](#where-future-phases-go).
+What is verified instead: the model adapter, audio conversion and artifact
+writing are covered by tests against a fake backend, and `run_inference.py`
+exits `3` with installation instructions when the runtime is missing, instead of
+pretending to have transcribed anything.
 
-## Features
+### Where model files belong
 
-- Reproducible baseline runs: each run records config digest, git revision, Python/platform, model id, decoder, device, sample count and timings.
-- Research-integrity defaults: dataset validation happens before any model load; a failed run is recorded as `failed` and never writes predictions or metrics.
-- Raw tool/model output preserved: model output and reference transcripts are stored verbatim next to the normalized forms used for scoring.
-- Metric implementation is local, tiny and unit-tested (exact-match, substitution, insertion, deletion, empty hypothesis, Assamese Unicode).
-- Offline test suite: no network, no model download, no GPU.
+Weights and Hugging Face caches belong in the repository-local `models/`
+directory, which is git-ignored (only `models/.gitkeep` is tracked), because
+`~/.cache/` may be cleared at any time:
 
-## Tech stack
+```bash
+export HF_HOME="$PWD/models/huggingface"   # keep downloads inside the repo tree
+```
 
-- **Python 3.11** (`>=3.11,<3.13`; pinned to 3.11 by `.python-version`, the version the IndicConformer runtime stack targets)
-- **uv + mise** — environment, dependency locking (`uv.lock`) and task running
-- **numpy**, **soundfile** (libsndfile), **soxr** — audio decode, mono downmix, resampling
-- **PyYAML** — experiment configuration
-- **pytest**, **ruff** — tests and lint/format
-- WER/CER are implemented in this repository rather than pulled from a metrics dependency, so edit counts and alignments stay inspectable
-- **AI4Bharat NeMo + PyTorch** — intentionally *not* project dependencies; installed separately for inference only (see [Inference status](#inference-status-indicconformer))
+Weights, checkpoints and caches must never be committed. `.gitignore` already
+blocks `models/*`, the common weight extensions (`.nemo`, `.ckpt`, `.pt`,
+`.pth`, `.safetensors`, `.onnx`, `.bin`) and `.env` files.
 
-## Architecture / Pipeline
+## How a run works
 
 ```text
 Assamese audio + reference transcript
         │
         ▼
-manifest (JSONL/CSV) ──► data.loader ──► validation gate (fails loudly)
+manifest (JSONL/CSV) ──► loader ──► validation gate (fails loudly, before anything else)
         │
         ▼
-data.preprocessing ──► decode, validate, mono, 16 kHz (copy written; raw untouched)
+preprocessing ──► decode, validate, mono, 16 kHz copy (your file is untouched)
         │
         ▼
-inference.indicconformer ──► pretrained IndicConformer (AI4Bharat NeMo backend)
+indicconformer ──► pretrained AI4Bharat IndicConformer (CTC or RNNT)
         │
         ▼
-predicted Assamese transcript (verbatim)
+predicted Assamese transcript (kept verbatim)
         │
         ▼
-data.text.normalize_transcript (conservative, metric-time only)
+normalization (metric-time only) ──► WER + CER with S/D/I counts
         │
         ▼
-evaluation.metrics ──► WER + CER with S/D/I counts and alignment
-        │
-        ▼
-experiments.runner ──► experiments/<name>_<YYYYMMDD>_<NNN>/
-                        ├── config.yaml
-                        ├── predictions.jsonl
-                        ├── metrics.json
-                        └── run.json
+experiments/<name>_<YYYYMMDD>_<NNN>/
+        ├── config.yaml          # configuration actually used
+        ├── predictions.jsonl    # one line per sample, with WER/CER and counts
+        ├── metrics.json         # pooled WER/CER for the run
+        └── run.json             # status, model, device, timings, git revision
 ```
 
-### Dataset layer (`src/assamese_asr/data/`)
+The pipeline is deterministic: the model is frozen and run in inference mode,
+decoding is greedy (no beam search), and metric tie-breaking is fixed, so the
+same inputs always produce the same numbers.
 
-1. `schema.py` — the record model; unknown fields are rejected so research variables cannot silently disappear.
-2. `loader.py` — JSONL/CSV parsing that reports every malformed entry at once, plus `validate_manifest`/`validate_records` integrity checks.
-3. `preprocessing.py` — audio probing/decoding, mono downmix, resampling into a model-ready copy, explicit `AudioError` failures.
-4. `text.py` — conservative normalization used only for metrics; the verbatim transcript is always kept.
+## Command reference
 
-### Inference layer (`src/assamese_asr/inference/indicconformer.py`)
+All three scripts support `--help`, log to stderr, and print reports to stdout.
+They can be run through `uv run` (shown here) or with the virtualenv activated
+(`source .venv/bin/activate`), which makes plain `python scripts/...` work too.
 
-1. `InferenceConfig` — model id, device (`auto`/`cpu`/`cuda`), decoder (`ctc`/`rnnt`), language id, batch size, sample rate.
-2. `NemoIndicConformerBackend` — the only place that imports PyTorch/NeMo; `load()` raises `MissingDependencyError` or `ModelUnavailableError` with actionable messages.
-3. `IndicConformerRecognizer` — the facade the rest of the project uses: `recognizer.transcribe(audio_path) -> Prediction`.
-4. Deterministic inference: model frozen/`eval()`, `torch.inference_mode()`, greedy CTC/RNNT decoding (`logprobs=False`), no beam search configuration.
-
-### Evaluation layer (`src/assamese_asr/evaluation/`)
-
-1. `metrics.py` — Levenshtein alignment with deterministic tie-breaking; `EditCounts` (substitutions, deletions, insertions, reference units), `word_error_rate`, `character_error_rate`, pooled corpus aggregation.
-2. `errors.py` — per-sample word alignment (`SampleErrorAnalysis`) and an `ErrorSummary` with pooled counts and top substitution pairs. Condition-specific taxonomy is future work.
-
-### Experiment layer (`src/assamese_asr/experiments/`)
-
-1. `config.py` — small YAML config, validated, with a SHA-256 digest recorded per run.
-2. `runner.py` — validation gate, model-agnostic run loop, artifact writers, and failure handling that never produces believable-looking partial results. `run_inference.py` validates the manifest *before* loading the model, and the runner re-validates so library callers cannot bypass the gate.
-
-## Install
-
-Prerequisites: [mise](https://mise.jdx.dev/) (manages Python 3.11 + uv), or a
-Python 3.11 environment with [uv](https://docs.astral.sh/uv/) available.
-
-### From source (mise)
-
-```bash
-git clone https://github.com/rugbedbugg/AwesomeAssam.git
-cd AwesomeAssam
-mise install          # Python 3.11 + uv
-mise run install      # uv sync --locked (creates .venv)
-```
-
-### From source (uv only)
-
-```bash
-git clone https://github.com/rugbedbugg/AwesomeAssam.git
-cd AwesomeAssam
-uv sync --locked
-```
-
-Inference additionally needs the pretrained-model runtime, which is **not**
-installed by `uv sync`:
-
-```bash
-git clone https://github.com/AI4Bharat/NeMo.git && cd NeMo \
-  && git checkout nemo-v2 && bash reinstall.sh
-```
-
-and read [Inference status](#inference-status-indicconformer) first — the model
-repository is gated.
-
-## Commands / Usage
-
-The repository ships **no audio**: create `data/metadata/baseline.jsonl` for your
-own authorised recordings first (schema and rules in [`data/README.md`](data/README.md)).
-
-All commands work either through `mise`/`uv` (recommended) or with the project
-virtualenv activated (`.venv/bin/activate`), which is what makes the plain
-`python scripts/...` form work.
-
-### 1. Validate a dataset manifest
+### `scripts/validate_dataset.py`
 
 ```bash
 uv run python scripts/validate_dataset.py data/metadata/baseline.jsonl
 uv run python scripts/validate_dataset.py data/metadata/baseline.jsonl --audio-root .
 ```
 
-Exit code `0` when every sample is valid, `1` when the manifest is malformed or
-validation finds problems (details on stderr, one block per sample).
+Checks the manifest and every sample: unique `sample_id`, non-empty transcript,
+supported audio extension, audio file present and non-empty. Problems are listed
+per sample; exit code `1` if anything is wrong.
 
-### 2. Run baseline inference
+### `scripts/run_inference.py`
 
 ```bash
 uv run python scripts/run_inference.py \
@@ -187,44 +256,34 @@ uv run python scripts/run_inference.py \
     --output experiments/baseline
 ```
 
-Creates `experiments/baseline_<YYYYMMDD>_<NNN>/`. `--limit N` runs a smoke test
-on the first N samples (the run records `limit` in `run.json`; its metrics are
-not a baseline result). `--device cpu|cuda|auto` overrides the config.
+Validates the dataset, loads the model, transcribes every sample and writes the
+run folder. `--limit N` transcribes only the first N samples useful as a smoke
+test; the run records the limit so nobody mistakes it for a full result.
+`--device cpu|cuda|auto` overrides the config.
 
-### 3. Evaluate an existing run
+### `scripts/evaluate.py`
 
 ```bash
 uv run python scripts/evaluate.py experiments/baseline_20260919_001
 uv run python scripts/evaluate.py experiments/baseline_20260919_001/predictions.jsonl
 ```
 
-Recomputes WER/CER from the stored reference/hypothesis pairs, compares them
-with the stored per-sample values, prints the aggregate and (optionally) writes
-them: `--output metrics.recomputed.json`. Exit code `1` if the artifact is
-unreadable or the recomputed numbers disagree with what is stored.
+Recomputes WER/CER from the stored reference/hypothesis pairs and compares them
+with the values stored during the run, so changed or corrupted artifacts are
+detected rather than trusted. `--output metrics.recomputed.json` writes the
+recomputed metrics to a file.
 
-### 4. Development tasks
+### Exit codes
 
-```bash
-mise run test      # uv run --locked pytest
-mise run lint      # ruff check + ruff format --check
-mise run format    # ruff format
-mise run check     # lint + test
-```
+| script | `0` | `1` | `2` | `3` | `4` |
+|---|---|---|---|---|---|
+| `validate_dataset.py` | all samples valid | manifest or validation failure | usage error | | |
+| `run_inference.py` | run completed | dataset, config or run failure | usage error (incl. bad `--device`) | inference runtime missing | model unavailable (gated access, weights) |
+| `evaluate.py` | consistent | unreadable artifact or stored/recomputed mismatch | usage error | | |
 
-### `--help` and exit codes
+## Configuration
 
-Every script supports `--help` and documents its exit codes in the epilog.
-
-| script | exit codes |
-|---|---|
-| `validate_dataset.py` | `0` valid · `1` manifest/validation failure · `2` usage error |
-| `run_inference.py` | `0` completed · `1` dataset/config/run failure · `2` usage error (incl. bad `--device`) · `3` inference dependency missing · `4` model unavailable |
-| `evaluate.py` | `0` consistent · `1` read failure or stored/recomputed mismatch · `2` usage error |
-
-## Options / Configuration
-
-### Config file (`configs/indicconformer.yaml`)
+`configs/indicconformer.yaml` is the only configuration file:
 
 ```yaml
 experiment:
@@ -242,59 +301,22 @@ inference:
   batch_size: 1
 ```
 
-Unknown sections/keys are rejected (a typo must not silently change a run). The
-normalized config is copied into each experiment directory, and the SHA-256 of
-the file used is recorded in `run.json`.
+Unknown sections and keys are rejected, so a typo cannot silently change a run.
+The normalized config is copied into the run folder and its SHA-256 is recorded
+in `run.json`.
 
-### CLI flags
-
-| Flag | Script | Default | Description |
+| Flag | Script | Default | Meaning |
 |---|---|---|---|
 | `manifest` | validate, run | — | JSONL/CSV manifest path |
-| `--audio-root` | validate, run | cwd | Root that relative `audio_path` values resolve against |
-| `--config` | run | `configs/indicconformer.yaml` | Experiment configuration |
-| `--output` | run | — | Experiment base path (`<parent>/<name>_<date>_<seq>` is created) |
-| `--device` | run | config value | `auto`/`cpu`/`cuda` override |
-| `--limit` | run | none | Transcribe only the first N samples (smoke runs) |
-| `--output` | evaluate | none | Write recomputed aggregate metrics to this file |
-| `--log-level` | all | `INFO` (or `$ASSAMESE_ASR_LOG_LEVEL`) | Logging verbosity |
+| `--audio-root` | validate, run | current directory | root for relative `audio_path` values |
+| `--config` | run | `configs/indicconformer.yaml` | experiment configuration |
+| `--output` | run | — | base path; `<parent>/<name>_<date>_<seq>` is created |
+| `--device` | run | config value | `auto` / `cpu` / `cuda` override |
+| `--limit` | run | none | transcribe only the first N samples |
+| `--output` | evaluate | none | write recomputed metrics to this file |
+| `--log-level` | all | `INFO` (or `$ASSAMESE_ASR_LOG_LEVEL`) | logging verbosity |
 
-## Text normalization (exactly what it does)
-
-Applied only when scoring; the verbatim transcript in the manifest is never
-rewritten, and both forms are stored in `predictions.jsonl`.
-
-1. Unicode normalization — `NFC` by default, configurable. This matters for
-   code-switched Latin text (`e` + U+0301 vs `é`) and keeps decomposed input
-   comparable to composed input.
-2. Collapsing whitespace runs to a single space — before character removal, so
-   tabs/newlines can never merge two words.
-3. Removal of Unicode control characters (`Cc`) and format characters (`Cf`)
-   **except** ZWNJ (U+200C) and ZWJ (U+200D), which are meaningful in Indic
-   scripts and are preserved.
-4. Stripping leading/trailing whitespace.
-
-It does **not** remove punctuation (the danda `।` is kept), does not case-fold,
-does not touch Assamese letters/matras/hasanta/nukta/anusvara/visarga/digits, and
-applies no Assamese-specific linguistic normalization rules (spelling variants,
-numeral mapping, transliteration) — those need evidence and are future work.
-
-## Metrics
-
-```text
-WER = (S + D + I) / N   over whitespace-tokenized words
-CER = (S + D + I) / N   over characters, including spaces
-```
-
-Both expose the score **and** the edit counts (`substitutions`, `deletions`,
-`insertions`, `reference_units`, `hypothesis_units`). Corpus-level WER/CER are
-pooled from per-sample counts (total edits ÷ total reference units), not averaged
-over samples. When the reference is empty, the rate is `1.0` if the hypothesis
-has units and `0.0` if both are empty. Alignment tie-breaking is deterministic
-(diagonal preferred over deletion, deletion over insertion), so re-running the
-same predictions produces identical numbers.
-
-## Experiment artifacts
+## What a run writes
 
 ```text
 experiments/
@@ -305,7 +327,10 @@ experiments/
     └── run.json
 ```
 
-`predictions.jsonl` (one line per sample; `<model output>` is verbatim):
+The values below are **shape examples, not measurements** No model has been
+run in this repository, so any real number will differ.
+
+`predictions.jsonl` (one JSON object per sample):
 
 ```json
 {
@@ -325,7 +350,8 @@ experiments/
 }
 ```
 
-`metrics.json` (aggregate values are pooled from per-sample counts):
+`metrics.json` Pooled from the per-sample counts (total edits ÷ total
+reference units), not an average of per-sample rates:
 
 ```json
 {
@@ -340,7 +366,7 @@ experiments/
 }
 ```
 
-`run.json`:
+`run.json` Reproducibility metadata:
 
 ```json
 {
@@ -363,150 +389,213 @@ experiments/
 }
 ```
 
-On failure `run.json` is written with `"status": "failed"`, the failing
-`sample_id`, the number of completed samples and the error message — and
-`predictions.jsonl`/`metrics.json` are deliberately **not** written, so partial
-output can never be mistaken for a finished baseline.
+If something fails mid-run, `run.json` is written with `"status": "failed"`, the
+failing `sample_id`, how many samples completed and the error message and
+`predictions.jsonl` and `metrics.json` are **not** written, so a partial run can
+never be mistaken for a finished one.
 
-## Project structure
+## How scoring works
+
+### Transcript normalization
+
+Applied only when scoring. The verbatim transcript is never rewritten, and both
+forms end up in `predictions.jsonl`:
+
+1. Unicode normalization -- `NFC` by default, configurable. This matters for
+   code-switched Latin text (`e` + U+0301 vs `é`) and keeps decomposed input
+   comparable to composed input.
+2. Whitespace runs collapse to a single space, done **before** character removal,
+   so tabs and newlines can never merge two words.
+3. Unicode control and format characters are removed **except** ZWNJ (U+200C) and
+   ZWJ (U+200D), which are meaningful in Indic scripts and are preserved.
+4. Leading and trailing whitespace is stripped.
+
+It does **not** remove punctuation (the danda `।` is kept), does not change case,
+does not touch Assamese letters, matras, hasanta, nukta, anusvara, visarga or
+digits, and applies no Assamese-specific linguistic rules (spelling variants,
+numeral mapping, transliteration). Changing any of this changes the numbers, so
+see [CONTRIBUTING.md](CONTRIBUTING.md) before doing so.
+
+### WER and CER
+
+```text
+WER = (S + D + I) / N   over whitespace-tokenized words
+CER = (S + D + I) / N   over characters, including spaces
+```
+
+Both report the score *and* the counts (`substitutions`, `deletions`,
+`insertions`, `reference_units`, `hypothesis_units`). Corpus-level rates are
+pooled from per-sample counts, not averaged across samples. When the reference is
+empty the rate is `1.0` if the hypothesis has units and `0.0` if both are empty.
+Alignment tie-breaking is deterministic (diagonal preferred over deletion,
+deletion over insertion), so re-scoring the same predictions gives identical
+numbers.
+
+## Using it from Python
+
+The CLI scripts are thin wrappers around the package, so anything you can do on
+the command line you can do in a script:
+
+```python
+from pathlib import Path
+
+from assamese_asr.data import load_manifest, validate_records
+from assamese_asr.evaluation import analyze_sample, compute_sample_metrics, summarize
+from assamese_asr.experiments import ExperimentConfig, run_experiment
+from assamese_asr.inference import IndicConformerRecognizer
+
+manifest = Path("data/metadata/baseline.jsonl")
+records = load_manifest(manifest)
+
+# 1. Validate before spending time on inference.
+report = validate_records(records, manifest_path=manifest, audio_root=Path("."))
+if not report.ok:
+    raise SystemExit(report.format())
+
+# 2. Score a reference/hypothesis pair -- no model needed.
+sample = records[0]
+metrics = compute_sample_metrics(sample.transcript, "মই আজি ঘৰলৈ যাই")
+print(metrics.wer.score, metrics.cer.score)
+print(metrics.wer.counts.substitutions, metrics.wer.counts.deletions)
+
+# 3. Inspect where the errors are.
+analysis = analyze_sample(sample.sample_id, sample.transcript, "মই আজি ঘৰলৈ যাই")
+print(analysis.substitutions, analysis.insertions, analysis.deletions)
+print(summarize([analysis]).to_dict()["top_substitutions"])
+
+# 4. Run the whole pipeline (needs the model runtime installed).
+config = ExperimentConfig.from_yaml(Path("configs/indicconformer.yaml"))
+recognizer = IndicConformerRecognizer(config.model)
+run = run_experiment(
+    records=records,
+    recognizer=recognizer,
+    config=config,
+    output_base=Path("experiments/baseline"),
+    manifest_path=manifest,
+    audio_root=Path("."),
+)
+print(run.directory, run.metrics["wer"], run.metrics["cer"])
+```
+
+`run_experiment()` takes any object that follows the recognizer contract
+(`.model_id`, `.device`, `.transcribe(path) -> Prediction`), so tests and
+analysis tools can run the full pipeline without a model installed:
+
+```python
+recognizer = IndicConformerRecognizer(config.model, backend=my_backend)
+```
+
+## Pointers for researchers
+
+The short version, if you are reading this to use the code rather than run the
+CLI:
+
+- **Normalization before scoring** → `src/assamese_asr/data/text.py`
+- **WER/CER and pooling** → `src/assamese_asr/evaluation/metrics.py`
+- **Error breakdown (substitutions, insertions, deletions)** → `src/assamese_asr/evaluation/errors.py`
+- **Model adapter (the only model-specific code)** → `src/assamese_asr/inference/indicconformer.py`
+- **Runs, artifacts and metric aggregation** → `src/assamese_asr/experiments/runner.py`
+
+Every module opens with a docstring covering its scope and what it deliberately
+does *not* do, and the tests mirror the module layout. For the complete
+file-level map — including which files must never be changed silently, because
+doing so alters what earlier numbers mean — see [CONTRIBUTING.md](CONTRIBUTING.md).
+For the research questions these pieces serve, see [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Development
+
+```bash
+mise run install    # uv sync --locked (creates .venv)
+mise run test       # uv run --locked pytest
+mise run lint       # ruff check + ruff format --check
+mise run format     # ruff format
+mise run check      # lint + test. Run this before opening a pull request
+```
+
+The suite is offline: no network, no model download, no GPU, no private data.
+Synthetic audio is generated per test, and the model adapter is exercised through
+an injected fake backend.
+
+| Test file | Covers |
+|---|---|
+| `test_schema.py` | required/optional fields, unknown-field rejection, types and durations |
+| `test_loader.py` | JSONL/CSV loading, malformed rows, duplicates, empty transcripts, missing/empty audio |
+| `test_text.py` | Unicode normalization, whitespace collapsing, ZWNJ/ZWJ preservation, Assamese text preservation |
+| `test_preprocessing.py` | probing, mono downmix, 16 kHz resampling, model-ready copies, invalid audio |
+| `test_metrics.py` | exact match, substitution, insertion, deletion, empty inputs, Assamese Unicode, pooling |
+| `test_errors.py` | per-sample alignments, summaries, top substitutions |
+| `test_inference.py` | config validation, device fallback, fake-backend transcription, missing-dependency error |
+| `test_experiment.py` | run directories, artifact contents, pooling, determinism, failure handling |
+| `test_cli.py` | the real scripts: `--help`, success paths, exit codes |
+| `test_repo_hygiene.py` | publication policy: what may never be committed |
+
+CI (`.github/workflows/ci.yml`) runs `mise run install` then `mise run check` on
+a stock GitHub runner. It needs no credentials, no GPU, no model download and no
+private data.
+
+## Limitations
+
+- **Manifests are files on disk.** No dataset ingestion, splitting or
+  speaker-disjoint partitioning tools exist yet.
+- **One sample at a time.** `batch_size` reaches the model call, but the runner
+  transcribes sequentially.
+- **Audio formats** are limited to what libsndfile decodes (`.wav`, `.flac`,
+  `.ogg`, `.oga`, `.opus`, `.mp3`); other containers need manual conversion.
+- **Validation checks metadata, not content.** Existence, size and extension are
+  checked up front; decodability and non-finite samples surface when a sample is
+  transcribed.
+- **`duration_seconds`** in a manifest is not cross-checked against the real file.
+- **CER includes spaces** and WER is whitespace-tokenized; neither removes
+  punctuation or normalizes numerals.
+- **No per-condition reporting yet.** Counts, alignments and top substitution
+  pairs are available per sample and per run, but there is no grouping by
+  speaker/region/style/condition tooling.
+- **One decoder per run.** Switching between CTC and RNNT means a new run folder.
+- **No accuracy numbers in this repository** -- see
+  [Current status of real inference](#current-status-of-real-inference).
+- **`experiments/` is git-ignored**, so run folders stay on the machine that
+  produced them (config hash and git revision make them reproducible).
+
+## Project layout
 
 ```text
 AwesomeAssam/
-├── configs/indicconformer.yaml     # baseline experiment configuration
+├── configs/indicconformer.yaml     # the run configuration
 ├── data/
-│   ├── raw/                        # source audio (untracked; never modified)
-│   ├── processed/                  # derived audio (untracked)
-│   ├── metadata/                   # dataset manifests (JSONL/CSV)
-│   └── README.md                   # manifest schema and data rules
+│   ├── raw/                        # your source audio (git-ignored, never modified)
+│   ├── processed/                  # derived audio (git-ignored)
+│   ├── metadata/                   # manifests
+│   └── README.md                   # manifest reference, data policy, privacy rules
+├── docs/ROADMAP.md                 # research questions, planned work, non-goals
+├── models/                         # local model cache (git-ignored; .gitkeep only)
 ├── src/assamese_asr/
 │   ├── data/                       # schema, loader + validation, audio, text
 │   ├── inference/indicconformer.py # the only model-specific module
 │   ├── evaluation/                 # metrics + error-analysis foundation
-│   ├── experiments/                # config + run orchestrator/artifacts
+│   ├── experiments/                # config + run orchestration and artifacts
 │   └── utils/                      # logging, exit codes
 ├── scripts/                        # validate_dataset, run_inference, evaluate
-├── experiments/                    # generated run artifacts (untracked)
+├── experiments/                    # generated run folders (git-ignored)
 ├── tests/                          # offline pytest suite
-├── .github/workflows/ci.yml        # lint + test on push/PR
+├── .github/                        # CI workflow, issue and PR templates
 ├── pyproject.toml / uv.lock / mise.toml / .python-version
+├── CONTRIBUTING.md
 └── README.md
 ```
 
-## Testing
+## Contributing and data policy
 
-```bash
-mise run test        # or: uv run --locked pytest
-```
-
-| test file | covers |
-|---|---|
-| `test_schema.py` | required/optional fields, unknown-field rejection, type and duration validation, round-trip |
-| `test_loader.py` | JSONL/CSV loading, malformed lines, missing columns, duplicates, empty transcripts, missing/empty audio, report formatting |
-| `test_text.py` | Unicode normalization (incl. code-switched Latin), whitespace collapsing, ZWNJ/ZWJ preservation, control-character removal, Assamese text preservation |
-| `test_preprocessing.py` | probing, mono downmix, 16 kHz resampling, model-ready copy creation, invalid/empty/non-finite audio errors |
-| `test_metrics.py` | exact match, substitution, insertion, deletion, empty hypothesis/reference, Assamese Unicode, tie-break determinism, pooled aggregation |
-| `test_errors.py` | per-sample alignment pairs, error summaries, top substitution pairs |
-| `test_inference.py` | config validation, device resolution/CPU fallback, fake-backend transcription, audio conversion path, missing-dependency error |
-| `test_experiment.py` | experiment directory allocation, artifact set/contents, pooled metrics, deterministic re-runs, failure path (`status: failed`, no predictions) |
-| `test_cli.py` | real script invocation: `--help`, success paths and exit codes (validation gate, missing dependency, evaluate mismatch) |
-
-No test requires network access, a GPU or the pretrained model. The only
-conditional skip is the AI4Bharat-NeMo load path, which is skipped when a real
-NeMo install is present (it then exercises the real loader instead of the
-missing-dependency assertion).
-
-## Inference status (IndicConformer)
-
-The adapter is implemented, wired into the pipeline and unit-tested, but **real
-pretrained-model inference has not been executed in this repository's
-development environment**. There is no verified Assamese baseline yet, and no
-number anywhere in this repository is a model result: the figures shown in the
-artifact documentation above are shape examples, not measurements.
-
-Blockers observed while building Milestone 0:
-
-1. **Gated model repository.** `ai4bharat/indicconformer_stt_as_hybrid_ctc_rnnt_large`
-   is publicly readable only after accepting AI4Bharat's conditions while
-   authenticated; anonymous downloads are refused. No Hugging Face token or
-   cache exists in the development environment, and accepting the conditions is
-   an interactive, account-bound action that cannot be completed
-   non-interactively.
-2. **Inference runtime is not installed (by design).** The model card requires
-   the AI4Bharat NeMo fork (`git checkout nemo-v2`), which is not published to
-   PyPI and pulls in PyTorch. It is deliberately not a package dependency, so
-   `uv sync` yields an environment that runs the dataset, metrics, experiment
-   and CLI layers but cannot run the model.
-3. **No CUDA device.** `torch.cuda.is_available()` is false in this
-   environment; inference would be CPU-only (the adapter selects CPU
-   automatically and logs a warning when CUDA is requested).
-4. **Limited memory.** Roughly 1 GB of RAM was available during this session,
-   which is tight for the Conformer-Large model plus NeMo/PyTorch imports.
-
-What *was* validated locally instead:
-
-- a real (non-mocked) call to the adapter in this environment raises
-  `MissingDependencyError`, and `scripts/run_inference.py` exits `3` with the
-  install instructions;
-- `IndicConformerRecognizer`, audio preparation and artifact writing are covered
-  by tests against a fake backend, including the non-16 kHz conversion path;
-- the validation gate is covered end to end: an invalid manifest stops the run
-  before any model load and before an experiment directory is created.
-
-To enable real inference:
-
-```bash
-# 1. Accept AI4Bharat's conditions on the model page, then authenticate
-huggingface-cli login            # or: export HF_TOKEN=...
-
-# 2. Install the inference runtime in the project venv (Python 3.11)
-git clone https://github.com/AI4Bharat/NeMo.git && cd NeMo \
-  && git checkout nemo-v2 && bash reinstall.sh
-
-# 3. Smoke test before committing to a full baseline
-uv run python scripts/run_inference.py \
-    --manifest data/metadata/baseline.jsonl \
-    --config configs/indicconformer.yaml \
-    --output experiments/smoke --limit 2
-```
-
-Any published baseline must be produced by a real run of the command above; the
-repository never fabricates or estimates model results.
-
-## Known limitations
-
-- **Alpha-quality dataset tooling.** Manifests must be JSONL/CSV on disk; there
-  is no dataset ingestion, splitting or speaker-disjoint partitioning yet.
-- **One sample at a time.** Batch inference is configured but the runner
-  transcribes sequentially; `batch_size` only reaches the backend call.
-- **Audio formats** are limited to what libsndfile decodes (`.wav`, `.flac`,
-  `.ogg`, `.oga`, `.opus`, `.mp3`); other containers must be converted manually.
-- **No audio-content checks in validation.** Validation checks existence, size
-  and extension; decodability and non-finite samples are only detected when the
-  sample is transcribed.
-- **`duration_seconds` in the manifest is not cross-checked** against the real
-  file duration.
-- **CER includes spaces** and WER is whitespace-tokenized, so neither metric
-  normalizes punctuation or numerals — intentional for now, documented above.
-- **No condition-specific error taxonomy or significance testing.** Only pooled
-  counts, per-sample alignments and top substitution pairs are available.
-- **Single decoder per run.** Switching between CTC and RNNT requires a new run
-  (and a new experiment directory), which is intended for baseline hygiene.
-- **No published baseline numbers yet** — see Inference status.
-- **`experiments/` is not tracked**, so artifacts live only on the machine that
-  produced them (config digest + git revision make them reproducible).
-
-## Where future phases go
-
-Only locations are reserved below; nothing is implemented or stubbed.
-
-```text
-BiLSTM-CTC educational baseline   src/assamese_asr/models/bilstm_ctc.py (new package)
-IndicConformer fine-tuning        src/assamese_asr/training/ fine-tune script + configs
-condition-specific error taxonomy src/assamese_asr/evaluation/analysis.py
-dataset collection/ingestion      scripts/ + data/README.md (manifest stays the contract)
-speech → English text → speech    src/assamese_asr/demo/ (translation + TTS adapters)
-serving/UI                        out of scope for the research repository
-```
+- [CONTRIBUTING.md](CONTRIBUTING.md) -- setup, the `mise run check` requirement,
+  coding principles, branch naming, PR expectations, and the list of files where
+  a change alters what previous numbers mean.
+- [docs/ROADMAP.md](docs/ROADMAP.md) -- the research questions, what is planned
+  next, and what is deliberately out of scope.
+- [data/README.md](data/README.md) -- how to lay out data, what may be committed,
+  consent requirements, privacy rules and traceability requirements.
+- Issue templates: bug report, experiment proposal and dataset issue
+  (`.github/ISSUE_TEMPLATE/`). Use the experiment proposal before starting work
+  that changes methodology, and the dataset issue for anything touching data --
+  never attach private recordings to a public issue.
 
 ## License
 
@@ -514,7 +603,8 @@ Apache-2.0, see [LICENSE](LICENSE).
 
 ## Links
 
-- **Repo:** https://github.com/rugbedbugg/AwesomeAssam
-- **Issues:** https://github.com/rugbedbugg/AwesomeAssam/issues
-- **Model:** https://huggingface.co/ai4bharat/indicconformer_stt_as_hybrid_ctc_rnnt_large
-- **AI4Bharat NeMo:** https://github.com/AI4Bharat/NeMo
+- **Repo / Issues:** pending publication as `rugbedbugg/AwesomeAssam` (no remote
+  exists yet, so no link is given rather than a broken one)
+- **Model (IndicConformer, Assamese):** https://huggingface.co/ai4bharat/indicconformer_stt_as_hybrid_ctc_rnnt_large
+- **Model runtime (AI4Bharat NeMo):** https://github.com/AI4Bharat/NeMo
+- **Tooling:** [mise](https://mise.jdx.dev/), [uv](https://docs.astral.sh/uv/)

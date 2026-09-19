@@ -11,6 +11,19 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
+# Models
+models/*
+!models/.gitkeep
+
+# Model weights and checkpoints: never commit these, wherever they are unpacked.
+*.nemo
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.bin
+
 # Raw and derived audio: never commit research audio blobs.
 data/raw/*
 !data/raw/.gitkeep
@@ -25,3 +38,9 @@ experiments/*
 .env
 .env.*
 *.local.yaml
+
+# Editor and OS clutter
+.idea/
+.vscode/
+*.swp
+.DS_Store
