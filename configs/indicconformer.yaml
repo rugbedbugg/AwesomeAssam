@@ -1,0 +1,24 @@
+# Milestone 0 baseline configuration for the pretrained AI4Bharat Assamese
+# IndicConformer model. Every value here is written into the experiment
+# directory's config.yaml so a run is reproducible from its artifacts.
+experiment:
+  name: baseline
+
+model:
+  # Hybrid CTC-RNNT Conformer-Large (120M parameters), Assamese ('as').
+  # The Hugging Face repository is gated: see README.md ("Inference status").
+  id: ai4bharat/indicconformer_stt_as_hybrid_ctc_rnnt_large
+  device: auto # auto | cpu | cuda (auto falls back to CPU without CUDA)
+  decoder: ctc # ctc | rnnt
+  language_id: as
+
+audio:
+  sample_rate: 16000 # the model expects 16 kHz mono WAV
+
+text:
+  # Conservative metric-time normalization: NFC, control/format characters
+  # removed (ZWNJ/ZWJ kept), whitespace collapsed. See README.md.
+  unicode_normalization: NFC
+
+inference:
+  batch_size: 1 # Milestone 0 transcribes one file at a time

@@ -1,0 +1,27 @@
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Virtual environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Raw and derived audio: never commit research audio blobs.
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Generated experiments (structure is tracked, results are not).
+experiments/*
+!experiments/.gitkeep
+
+# Local tooling / secrets
+.env
+.env.*
+*.local.yaml

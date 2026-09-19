@@ -1,0 +1,29 @@
+[tools]
+python = "3.11"
+uv = "latest"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.install]
+description = "Create the project venv and install the package with dev extras"
+run = "uv sync --locked"
+
+[tasks.test]
+description = "Run the offline test suite"
+run = "uv run --locked pytest"
+
+[tasks.lint]
+description = "Check lint and formatting"
+run = [
+    "uv run --locked ruff check .",
+    "uv run --locked ruff format --check .",
+]
+
+[tasks.format]
+description = "Format Python sources"
+run = "uv run --locked ruff format ."
+
+[tasks.check]
+description = "Run all offline checks"
+run = ["mise run lint", "mise run test"]
